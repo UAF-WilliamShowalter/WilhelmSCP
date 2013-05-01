@@ -1,0 +1,151 @@
+/*
+	Written by William Showalter. williamshowalter@gmail.com.
+	Date Last Modified: 2013 March 23
+	Created: 2013 February 23
+ 
+	Released under Creative Commons - creativecommons.org/licenses/by-nc-sa/3.0/
+	Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)
+
+	**NOTE**
+	I am not a crytologist/cryptanalyst and this software has not been heavily analyzed for security,
+	so you should use it to protect actual sensitive data.
+
+	Software is provided as is with no guarantees.
+ 
+ 
+	Header for WilhelmSCP class
+ 
+	Basic Encryption Flow Structure:
+	********************************
+	listen();
+	send();
+	setInput(file);
+	setOutput(file);
+	exchangeKey ();
+ 
+	encrypt();
+		->	encCBC();
+			-> blockEnc();
+				-> roundEnc();
+ 
+	decrypt();
+		 ->	decCBC();
+			 -> blockDec();
+				 -> roundDec();
+	********************************
+	
+	setInput or setOutput may throw. Client code should check for errors. Exceptions documented in definitions.
+
+	encrypt() or decrypt() may throw if set functions are not called first.
+*/
+
+
+#ifndef __WilhelmSCP__WilhelmSCP__
+#define __WilhelmSCP__WilhelmSCP__
+
+#include <iostream>		// debugging to console
+
+#include <string>		// std::string
+#include <fstream>		// file IO
+#include <vector>		// std::vector
+#include <stdint.h>		// uint64_t
+
+#include "SHA256.h"		// Public Domain SHA256 hash function
+#include "osl/socket.h"	// OSL Socket library
+
+// GLOBAL CONST
+
+const unsigned int CLUSTER_BYTES	= 4096;
+const unsigned int BLOCK_BYTES		= 32;
+const unsigned int BLOCK_BITS		= 256;
+const unsigned int HASHING_REPEATS	= 2;
+const unsigned int ROR_CONSTANT		= 27;
+const unsigned int FEISTEL_ROUNDS	= 16;
+
+class WilhelmSCP {
+public:
+// Public Methods
+	void listen();
+	void send();
+	void setInput (std::string filename);
+	void setOutput (std::string filename);
+	void exchangeKey ();
+	void encrypt ();
+	bool decrypt ();
+
+	std::size_t getSize();
+
+// Debugging
+	void publicDebugFunc();
+
+// Constructors
+	WilhelmSCP ()
+	{
+		_indexToStream = 0;
+		_blockNum = 0;
+		_roundNum = 0;
+		_clusterNum = 0;
+		_inputSize = 0;
+		_currentBlock = NULL;
+		_currentL = NULL;
+		_currentR = NULL;
+		std::vector<char> _currentBlockSet;
+	}
+
+
+private:
+// Types
+	// Block, used for referencing 1 Block of data.
+	struct Block {
+		unsigned char data[BLOCK_BYTES];
+		Block & operator+= (const Block &rhs);
+		bool    operator== (const Block &rhs) const;
+		Block   operator^  (const Block &rhs) const;
+	};
+
+	// LRSide, used for referencing 1 side in a feistel process.
+	struct LRSide {
+		unsigned char data[BLOCK_BYTES/2];
+		LRSide operator^ (const LRSide & rhs) const;
+	};
+
+private:
+// Private Methods
+	void  encCBC();
+	Block decCBC();
+	void blockEnc();
+	void blockDec();
+	void roundEnc();
+	void roundDec();
+
+	LRSide	feistel (LRSide);
+	LRSide	permutationKey (Block, unsigned long, unsigned long);
+	Block	IVGenerator ();
+	Block	Padding (Block);
+	void	Hash_SHA256_Block (Block &);
+	Block	Hash_SHA256_Current_Cluster ();
+
+	LRSide	rorLRSide (const LRSide &, unsigned long);
+
+// Debugging Methods
+	void	printBlock (const Block &) const;
+	void	printLRSide (const LRSide &) const;
+
+// Private Data Members
+	std::ifstream	_ifile;
+	std::ofstream	_ofile;
+	unsigned long	_indexToStream;
+	unsigned long	_blockNum;
+	unsigned long	_roundNum;
+	unsigned long	_clusterNum;
+	std::size_t		_inputSize;
+	Block			_baseKey;
+	Block			_lastBlockPrevCluster;
+	Block *			_currentBlock;
+	LRSide *		_currentL;
+	LRSide *		_currentR;
+	std::vector<Block> _currentBlockSet;
+	
+};
+
+#endif /* defined(__WilhelmSCP__WilhelmSCP__) */
