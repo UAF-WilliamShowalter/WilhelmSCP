@@ -5,6 +5,8 @@
 /**
  Return the current time in seconds (since something or other).
  */
+#ifndef __NETRUNLIB_H__
+#define __NETRUNLIB_H__
 
 #if defined(_WIN32)
 #  include <sys/timeb.h>
@@ -23,3 +25,5 @@ double time_in_seconds(void) {
 	return tv.tv_usec*1.0e-6+tv.tv_sec*1.0;
 }
 #endif
+
+#endif // __NETRUNLIB_H__

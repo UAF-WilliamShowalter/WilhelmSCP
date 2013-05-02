@@ -7,12 +7,18 @@
 //
 
 #include <iostream>
+#include "WilhelmSCP.h"
 
 int main(int argc, const char * argv[])
 {
 
 	// insert code here...
-	std::cout << "Hello, World!\n";
-    return 0;
+	std::cout << "Enter 1 for listen, 2 for send. \n";
+	
+	WilhelmSCP test;
+
+	test.menu();
+	
+	
 }
 

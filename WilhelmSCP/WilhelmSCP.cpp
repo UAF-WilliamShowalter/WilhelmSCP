@@ -23,8 +23,149 @@
 #include <iomanip>		// Debugging
 
 extern SHA256::digest SHA256_digest (const std::string &src);
+//void timePrint (double time1, double time2, int dataSize);
 
 // Public Methods
+
+void WilhelmSCP::menu()
+{
+	/*
+	 This function runs a loop to prompt the user for input.
+
+	 Menu loop prompts are:
+	 1. Encryption
+	 2. Decryption
+	 3. Exit
+
+	 Options 1 & 2 will ask for input, key, and output file paths.
+
+	 Will reprompt if file paths are invalid.
+	 */
+
+
+
+	// Paths to our input files
+
+	std::string inputfilepath;
+	std::string outputfilepath;
+	std::string destAddress;
+	unsigned int portNum;
+
+	// Menu Code - pretty much self documenting switch statements.
+	int menuselection;
+	while (true)
+	{
+		std::cout   << "Please make a selection:\n"
+		<< "1. Listen\n" << "2. Send File\n" << "3. Exit\n" << "Selection #: ";
+		std::cin    >> menuselection;
+
+		std::cin.ignore(); // Getline will read the last line return and not read in any data without an ignore.
+
+		switch (menuselection)
+		{
+			case (1): // Listen for File
+			{
+				std::cout   << std::endl << "Listening for file:\n";
+				
+				std::cout   << std::endl;
+
+				try {
+					listen();
+				}
+
+				catch (std::runtime_error e) {
+					std::cout << "\n\n******\n" << e.what() << "\n******\n\n";
+				}
+
+				catch (std::bad_alloc e) {
+					std::cout << "\n\n******\n" << "Allocation Error - Sufficient memory might not be available.\n" << e.what() << "\n******\n\n";
+				}
+
+				catch (...) {
+					std::cout << "\n\n******\n" << "Unspecified Exception Caught: Restarting Menu" << "\n******\n\n";
+				}
+				break;
+			}
+
+			case (2): // Send file
+			{
+				std::cout   << std::endl << "Please input the path to the file to be sent:\n";
+				std::getline (std::cin, inputfilepath);
+
+				std::cout   << std::endl << "Please input a file name for the destination:\n";
+				std::getline (std::cin, _fileName);
+
+				std::cout   << std::endl << "Please input destination address:\n";
+				std::getline (std::cin, destAddress);
+				
+				std::cout   << std::endl << "Please input server port number, or 0 for default:\n";
+				std::cin >> portNum;
+
+				if (portNum == 0)
+					portNum = LISTENING_PORT;
+
+				std::cout   << std::endl;
+
+				try
+				{
+					//double t1 = time_in_seconds();
+
+					setInput (inputfilepath);
+
+					send(skt_lookup_ip(destAddress.c_str()), portNum);
+
+					//double t2 = time_in_seconds();
+
+					//timePrint (t1, t2, getSize());
+				}
+
+				catch (std::runtime_error e) {
+					std::cout << "\n\n******\n" << e.what() << "\n******\n\n";
+				}
+
+				catch (std::bad_alloc e) {
+					std::cout << "\n\n******\n" << "Allocation Error - Sufficient memory might not be available.\n" << e.what() << "\n******\n\n";
+				}
+
+				catch (...) {
+					std::cout << "\n\n******\n" << "Unspecified Exception Caught: Restarting Menu" << "\n******\n\n";
+				}
+				break;
+			}
+
+			case (3):
+			{
+				exit(0);
+			}
+			default:
+			{
+				std::cout << "Please choose from the choices below:\n";
+			}
+		}
+	}
+}
+void WilhelmSCP::listen()
+{
+	unsigned int port = LISTENING_PORT;
+	SERVER_SOCKET srv=skt_server(&port); /* lay claim to that port number */
+	while (true)
+	{
+		_socket = skt_accept(srv,0,0); /* wait until a client connects to our port */
+		exchangeKeyServer();	/* Starts a key exchange when client connects */
+		decrypt();	/* Receives and decrypts incomming data */
+		skt_close(_socket); /* stop talking to that client */
+	}
+	skt_close(srv); /* give up our claim on server port */
+}
+
+void WilhelmSCP::send(skt_ip_t ip, unsigned int port)
+{
+	_socket =skt_connect(ip,port,1); /* Connects to server */
+	exchangeKeyClient ();			/* Starts a key exchange with serveer */
+	encrypt();						/* Sends encrypted data to server */
+	skt_close(_socket);
+}
+
 void WilhelmSCP::setInput (std::string filename)
 {
 	// Open data file
@@ -48,21 +189,116 @@ void WilhelmSCP::setOutput (std::string filename)
 
 }
 
-void WilhelmSCP::exchangeKey ()
+void WilhelmSCP::exchangeKeyServer ()
 {
-	// Generate 256 bit key from password
-	SHA256::digest initKey = SHA256_digest (password);
+	// Shared public values:
+	BigInteger p;
+	BigInteger g;
+	
+	// Prime modulous constant set in WilhelmSCP.h
+	// Initially set to 2048 bit prime published in RFC 3526 (MODP Diffie-Hellman groups for IKE, May 2003).
+	p.readHex(PRIME);
+	// Random 256-bit shared base. Set to constant value in protocol.
+	g.readHex(G);
+
+
+	// side A:
+	BigInteger a=randIntGenerator();
+	BigInteger A=g.modPow(a,p);
+	BigInteger B;
+	unsigned char tempB [PRIME_BYTES];
+	unsigned char tempA [PRIME_BYTES];
+
+	// Wait to receive B;
+	skt_recvN (_socket, &tempB[0], PRIME_BYTES);
+	B.readBinary (&tempB[0], PRIME_BYTES);
+
+	// Send A to client
+	A.writeBinary (&tempA[0], PRIME_BYTES);
+	skt_sendN (_socket, &tempA[0], PRIME_BYTES);
+
+	// Compute private keys
+	BigInteger SB=B.modPow(a,p); // on A side
+
+	unsigned char sharedSecret [PRIME_BYTES];
+	SB.writeBinary (&sharedSecret[0], PRIME_BYTES);
+
+	// Quick and dirty way of getting shared secret down to 256 bits from 2048.
+		// Alternatives: XOR 256-bit chunks together or truncate.
+	
+	SHA256 hash;
+	hash.add(&sharedSecret[0],BLOCK_BYTES);
+	SHA256::digest d = hash.finish();
 
 	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
 	{
-		_baseKey.data[i] = initKey.data[i];
+		_baseKey.data[i] = d.data[i];
 	}
 
-	// Hash key block 5 more times
-	for (int i = 0; i < HASHING_REPEATS; i++)
-		Hash_SHA256_Block(_baseKey);
+		// Print results
+		std::cout<<"Prime p: "<<p.hex()<<"\n";
+		std::cout<<"Base  g: "<<g.hex()<<"\n";
+		std::cout<<"Secret a: "<<a.hex()<<"\n";
+		std::cout<<"Transmitted A: "<<A.hex()<<"\n";
+		std::cout<<"Received B: "<<B.hex()<<"\n";
+		std::cout<<"Shared secret B^a: 0x"<<SB.hex()<<"\n";
 }
 
+
+void WilhelmSCP::exchangeKeyClient ()
+{
+	// Shared public values:
+	BigInteger p;
+	BigInteger g;
+
+	// Prime modulous constant set in WilhelmSCP.h
+	// Initially set to 2048 bit prime published in RFC 3526 (MODP Diffie-Hellman groups for IKE, May 2003).
+	p.readHex(PRIME);
+	// Random 256-bit shared base. Set to constant value in protocol.
+	g.readHex(G);
+
+	// side B:
+	BigInteger b=randIntGenerator();
+	BigInteger B=g.modPow(b,p);
+	BigInteger A;
+	unsigned char tempA [PRIME_BYTES];
+	unsigned char tempB [PRIME_BYTES];
+	
+	// Send B to client
+	B.writeBinary (&tempB[0], PRIME_BYTES);
+	skt_sendN (_socket, &tempB[0], PRIME_BYTES);
+
+	// Wait to receive A;
+	skt_recvN (_socket, &tempA[0], PRIME_BYTES);
+	A.readBinary (&tempA[0], PRIME_BYTES);
+
+
+	// Compute private keys
+	BigInteger SA=A.modPow(b,p); // on B side
+
+	unsigned char sharedSecret [PRIME_BYTES];
+	SA.writeBinary (&sharedSecret[0], PRIME_BYTES);
+
+	// Quick and dirty way of getting shared secret down to 256 bits from 2048.
+	// Alternatives: XOR 256-bit chunks together or truncate.
+
+	SHA256 hash;
+	hash.add(&sharedSecret[0],BLOCK_BYTES);
+	SHA256::digest d = hash.finish();
+
+	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
+	{
+		_baseKey.data[i] = d.data[i];
+	}
+
+	// Print results
+	std::cout<<"Prime p: "<<p.hex()<<"\n";
+	std::cout<<"Base  g: "<<g.hex()<<"\n";
+	std::cout<<"Secret b: "<<b.hex()<<"\n";
+	std::cout<<"Transmitted B: "<<B.hex()<<"\n";
+	std::cout<<"Received A: "<<A.hex()<<"\n";
+	std::cout<<"Shared secret A^b: 0x"<<SA.hex()<<"\n";
+}
 
 
 std::size_t WilhelmSCP::getSize()
@@ -77,16 +313,29 @@ void WilhelmSCP::encrypt ()
 
 	if (!_ifile.is_open())
         throw std::runtime_error ("NO INPUT FILE HAS BEEN OPENED");
-	if (!_ofile.is_open())
-        throw std::runtime_error ("NO OUTPUT FILE HAS BEEN SET");
 	if (_baseKey == Block())
-        throw std::runtime_error ("NO PASSWORD HAS BEEN SET");
+        throw std::runtime_error ("NO KEY HAS BEEN SET");
 
+	// Send file size
+	skt_sendN(_socket, (char*)&_inputSize, sizeof(_inputSize));
+
+	// Send file name length followed by file name
+	// THIS IS PROBABLY A BAD WAY TO DO IT, BUT C-STRINGS SUCK NO MATTER WHAT.
+	char tempFileName [4096]; // Max filename length supported.
+	for (unsigned int i = 0; i < _fileName.size(); i++)
+		tempFileName[i] = _fileName.c_str()[i];
+	
+	unsigned int fileNameSize = _fileName.size();
+	skt_sendN(_socket, (char*)&fileNameSize, sizeof(fileNameSize));
+	skt_sendN(_socket, (char*)&tempFileName, fileNameSize);
+	
 	// Create IV
 	_lastBlockPrevCluster = IVGenerator();
 	
 	// Write IV
-	_ofile.write ((char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
+	skt_sendN(_socket, (char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
+	std::cout << "\n IV IS: ";
+	printBlock (_lastBlockPrevCluster);
 	
 	while (!_ifile.fail())
 	{
@@ -122,16 +371,16 @@ void WilhelmSCP::encrypt ()
 		// Write out to file, all last cluster cases include +BLOCK_BYTES to account for padding block
 		// Not last cluster
 		if (_indexToStream < _inputSize)
-			_ofile.write((char*)&_currentBlockSet[0], _currentBlockSet.size()*BLOCK_BYTES);
+			skt_sendN(_socket, (char*)&_currentBlockSet[0], _currentBlockSet.size()*BLOCK_BYTES);
 		// Last cluster and Last Block not a multiple of BLOCK_BYTES
 		else if (_inputSize%CLUSTER_BYTES && _inputSize%BLOCK_BYTES)
-			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES)-(_inputSize%BLOCK_BYTES)+BLOCK_BYTES+BLOCK_BYTES);
+			skt_sendN(_socket, (char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES)-(_inputSize%BLOCK_BYTES)+BLOCK_BYTES+BLOCK_BYTES);
 		// Last cluster and Last Block is a multiple of BLOCK_BYTES
 		else if (_inputSize%CLUSTER_BYTES)
-			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES) + BLOCK_BYTES);
+			skt_sendN(_socket, (char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES) + BLOCK_BYTES);
 		// Last cluster and cluster is a CLUSTER_BYTES in size.
 		else
-			_ofile.write((char*)&_currentBlockSet[0], CLUSTER_BYTES + BLOCK_BYTES);
+			skt_sendN(_socket, (char*)&_currentBlockSet[0], CLUSTER_BYTES + BLOCK_BYTES);
 
 		// Not strictly necessary, but good for what happens when this loop ends, and doesn't change capacity.
 		_currentBlockSet.clear();
@@ -144,7 +393,7 @@ void WilhelmSCP::encrypt ()
 	// Encrypt clusterHashers and write it out to file
 	Block hashesTemp = Hash_SHA256_Current_Cluster();
 
-	_ofile.write((char*)&hashesTemp.data[0], BLOCK_BYTES);
+	skt_sendN(_socket, (char*)&hashesTemp.data[0], BLOCK_BYTES);
 
 	// Cleanup
 	_indexToStream = 0;
@@ -163,29 +412,45 @@ bool WilhelmSCP::decrypt ()
 	std::vector <Block> clusterHashes;
 	Block OrigHashChecksum = Block();
 
-	if (!_ifile.is_open())
-        throw std::runtime_error ("NO INPUT FILE HAS BEEN OPENED");
-	if (_inputSize == 0)
-		throw std::runtime_error ("INPUT FILE IS EMPTY");
-	if (_inputSize % BLOCK_BYTES) // All encrypted files are a multiple of BLOCK_BYTES long
-		throw std::runtime_error ("INPUT IS NOT A VALID ENCRYPTED FILE");
-	if (!_ofile.is_open())
-        throw std::runtime_error ("NO OUTPUT FILE HAS BEEN SET");
 	if (_baseKey == Block())
-        throw std::runtime_error ("NO PASSWORD HAS BEEN SET");
+        throw std::runtime_error ("NO KEY HAS BEEN SET");
 
+	// Receive Input Size
+	skt_recvN (_socket, &_inputSize, sizeof(_inputSize));
+	_inputSize += 2*BLOCK_BYTES; // More the size of mandatory padding block and HMAC.
+	
+	// Receive file name & length followed by file name
+	// THIS IS PROBABLY A BAD WAY TO DO IT, BUT C-STRINGS SUCK NO MATTER WHAT.
+	char tempFileName [4096]; // Max filename length supported.
+	unsigned int fileNameSize;
+	
+	skt_recvN(_socket, (char*)&fileNameSize, sizeof(fileNameSize));
+	if (fileNameSize > 4096)
+		fileNameSize = fileNameSize%4096;
+	
+	skt_recvN(_socket, (char*)&tempFileName, fileNameSize);
+	for (unsigned int i = 0; i < fileNameSize; i++)
+		_fileName.push_back(tempFileName[i]);
+
+	// Open output file
+	setOutput (_fileName);
+	
 	// Read IV
-	_ifile.read((char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
-	_inputSize -= BLOCK_BYTES; // Less file size for IV
+	skt_recvN (_socket, (char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
 
-	while (!_ifile.fail())
+	std::cout << "\n IV IS: ";
+	printBlock (_lastBlockPrevCluster);
+	
+	// Runs until we've hit our last block. (_indexToStream+CLUSTER_BYTES < _inputSize) is false on last block, hence 2*CLUSTER_BYTES.
+	bool loop = true;
+	while (loop)
 	{
 		// Read a cluster
 		if (_indexToStream + CLUSTER_BYTES < _inputSize)
 		{
 			// Reads in next section
 			_currentBlockSet.resize(CLUSTER_BYTES/BLOCK_BYTES);
-			_ifile.read((char*)&_currentBlockSet[0],CLUSTER_BYTES);
+			skt_recvN (_socket, (char*)&_currentBlockSet[0],CLUSTER_BYTES);
 
 			// Update pos in stream
 			_indexToStream += CLUSTER_BYTES;
@@ -193,14 +458,15 @@ bool WilhelmSCP::decrypt ()
 		// Last cluster, <= CLUSTER_BYTES
 		else
 		{
-			// Reads in rest of file, tries to read 1 off end, setting the fail bit and prevent loop from continuing
+			// Reads in rest of file
 			_currentBlockSet.resize((_inputSize%CLUSTER_BYTES)/BLOCK_BYTES);
-			_ifile.read((char*)&_currentBlockSet[0],_inputSize-_indexToStream+1);
+			skt_recvN (_socket, (char*)&_currentBlockSet[0],_inputSize-_indexToStream);
 			
 			// Update pos in stream.
 			_indexToStream = _inputSize;
+			loop = false;
 		}
-
+		
 		// Original HMAC returned if on final block, default constructed block otherwise.
 		OrigHashChecksum = decCBC();
 
@@ -221,7 +487,7 @@ bool WilhelmSCP::decrypt ()
 
 		_currentBlockSet.clear();
 	}
-	
+
 	// Assign Hashes
 	_currentBlockSet = clusterHashes;
 	Block tempVal = Hash_SHA256_Current_Cluster();
@@ -625,5 +891,79 @@ void	WilhelmSCP::printLRSide (const WilhelmSCP::LRSide& lr) const
 
 void WilhelmSCP::publicDebugFunc()
 {
-	std::cout << "\nInput size = " << _inputSize << "\n";
+	std::cout << "Input size: " << _inputSize << "\n";
 }
+
+
+BigInteger WilhelmSCP::randIntGenerator ()
+{
+
+	std::ifstream random;
+
+	random.open ("/dev/random", std::ios::in | std::ios::binary);
+	WilhelmSCP::Block b;
+	random.read((char*)&b.data[0],BLOCK_BYTES);
+	random.close();
+
+	BigInteger randomBI;
+	randomBI.readBinary((const unsigned char*)&b.data[0], BLOCK_BYTES);
+	return randomBI;
+}
+
+
+
+// TIMING FUNCTIONS WERE CAUSING LINKING ERRORS - will look into it later.
+// Not specifically this timing function, but the functions in NetRunlib.h
+/*
+void timePrint (double time1, double time2, int dataSize)
+{
+    
+    // Calculates and prints to console the data speed of a given operation.
+
+    // time1 & time2 are the times before and after the operation.
+    // dataSize is the size (in bytes) of the data operated on.
+
+    //
+
+    int byteCounter = 0;
+
+    double bytesPerSecond = (dataSize)/(time2-time1);
+
+    if (bytesPerSecond > 1024)
+    {
+        byteCounter = KILOBYTES;
+        bytesPerSecond = bytesPerSecond / 1024;
+    }
+
+    if (bytesPerSecond > 1024)
+    {
+        byteCounter = MEGABYTES;
+        bytesPerSecond = bytesPerSecond / 1024;
+    }
+
+    if (bytesPerSecond > 1024)
+    {
+        byteCounter = GIGABYTES;
+        bytesPerSecond = bytesPerSecond / 1024;
+    }
+
+    std::string byteUnits;
+    switch (byteCounter)
+    {
+        case (BYTES):
+            byteUnits = "B/s";
+            break;
+        case (KILOBYTES):
+            byteUnits = "KB/s";
+            break;
+        case (MEGABYTES):
+            byteUnits = "MB/s";
+            break;
+        default:
+            byteUnits = "GB/s";
+    }
+
+    std::cout << "\n Processed at an average rate of: " << bytesPerSecond << " " << byteUnits << std::endl << std::endl;
+
+}
+*/
