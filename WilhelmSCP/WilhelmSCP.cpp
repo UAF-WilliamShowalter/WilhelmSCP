@@ -322,7 +322,7 @@ void WilhelmSCP::encrypt ()
 	// Send file name length followed by file name
 	// THIS IS PROBABLY A BAD WAY TO DO IT, BUT C-STRINGS SUCK NO MATTER WHAT.
 	char tempFileName [4096]; // Max filename length supported.
-	for (unsigned int i = 0; i < _fileName.size(); i++)
+	for (unsigned int i = 0; (i < _fileName.size()) && (i < 4096); i++)
 		tempFileName[i] = _fileName.c_str()[i];
 	
 	unsigned int fileNameSize = _fileName.size();
@@ -353,7 +353,7 @@ void WilhelmSCP::encrypt ()
 		{
 			// Reads in rest of file, tries to read 1 off end, setting the fail bit and prevent loop from continuing
 			std::size_t tempBlockNum = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
-			if (_inputSize%BLOCK_BYTES)
+			if (_inputSize%BLOCK_BYTES)	// This is clever trickery to balance out the truncating that happens in the previous command. If not a multiple, then we truncated.
 				tempBlockNum++;
 			_currentBlockSet.resize(tempBlockNum);
 			_ifile.read((char*)&_currentBlockSet[0],_inputSize-_indexToStream+1);
