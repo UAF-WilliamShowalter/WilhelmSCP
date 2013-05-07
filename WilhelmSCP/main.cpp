@@ -12,9 +12,7 @@
 int main(int argc, const char * argv[])
 {
 
-	// insert code here...
-	std::cout << "Enter 1 for listen, 2 for send. \n";
-	
+	// insert code here...	
 	WilhelmSCP test;
 
 	test.menu();

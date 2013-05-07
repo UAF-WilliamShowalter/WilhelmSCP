@@ -1,7 +1,7 @@
 /*
 	Written by William Showalter. williamshowalter@gmail.com.
-	Date Last Modified: 2013 March 23
-	Created: 2013 February 23
+	Date Last Modified: 2013 May 7
+	Created: 2013 April 30
  
 	Released under Creative Commons - creativecommons.org/licenses/by-nc-sa/3.0/
 	Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)
@@ -44,10 +44,6 @@
 	encrypt() or decrypt() may throw if set functions are not called first.
 */
 
-
-#ifndef __WilhelmSCP__WilhelmSCP__
-#define __WilhelmSCP__WilhelmSCP__
-
 #include <iostream>		// debugging to console
 
 #include <string>		// std::string
@@ -58,7 +54,10 @@
 #include "SHA256.h"		// Public Domain SHA256 hash function
 #include "osl/socket.h"	// OSL Socket library
 #include "osl/bigint.h" // OSL BigInt from Lawlor ECC library
-//#include "NetRunlib.h"	// Timing Library borrowed from NetRun
+#include "NetRunlib.h"	// Timing Library borrowed from NetRun
+
+#ifndef __WilhelmSCP__WilhelmSCP__
+#define __WilhelmSCP__WilhelmSCP__
 
 // GLOBAL CONST
 
@@ -95,7 +94,7 @@ class WilhelmSCP {
 public:
 // Public Methods
 	void menu();
-	void listen();
+	void listen(bool loop);
 	void send(skt_ip_t ip, unsigned int port);
 	void setInput (std::string filename);
 	void setOutput (std::string filename);
@@ -120,6 +119,7 @@ public:
 		_currentBlock = NULL;
 		_currentL = NULL;
 		_currentR = NULL;
+		_hmacSuccess = false;
 		std::vector<char> _currentBlockSet;
 	}
 
@@ -157,6 +157,9 @@ private:
 	Block	Padding (Block);
 	void	Hash_SHA256_Block (Block &);
 	Block	Hash_SHA256_Current_Cluster ();
+	void	printSuccess();
+
+	void	cleanup();
 
 	LRSide	rorLRSide (const LRSide &, unsigned long);
 
@@ -166,6 +169,7 @@ private:
 
 // Private Data Members
 	SOCKET			_socket;
+	unsigned int	_portNum;
 	std::ifstream	_ifile;
 	std::ofstream	_ofile;
 	std::string		_fileName;
@@ -173,13 +177,16 @@ private:
 	unsigned long	_blockNum;
 	unsigned long	_roundNum;
 	unsigned long	_clusterNum;
-	std::size_t		_inputSize;
+	uint64_t		_inputSize;
 	Block			_baseKey;
 	Block			_lastBlockPrevCluster;
 	Block *			_currentBlock;
 	LRSide *		_currentL;
 	LRSide *		_currentR;
 	std::vector<Block> _currentBlockSet;
+
+
+	bool			_hmacSuccess;
 	
 };
 

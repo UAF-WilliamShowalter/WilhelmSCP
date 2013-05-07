@@ -1,7 +1,7 @@
 /*
  Written by William Showalter. williamshowalter@gmail.com.
- Date Last Modified: 2013 March 23
- Created: 2013 February 23
+ Date Last Modified: 2013 May 7
+ Created: 2013 April 30
 
  Released under Creative Commons - creativecommons.org/licenses/by-nc-sa/3.0/
  Attribution-NonCommercial-ShareAlike 3.0 Unported (CC BY-NC-SA 3.0)
@@ -23,7 +23,7 @@
 #include <iomanip>		// Debugging
 
 extern SHA256::digest SHA256_digest (const std::string &src);
-//void timePrint (double time1, double time2, int dataSize);
+void timePrint (double time1, double time2, int dataSize);
 
 // Public Methods
 
@@ -49,28 +49,33 @@ void WilhelmSCP::menu()
 	std::string inputfilepath;
 	std::string outputfilepath;
 	std::string destAddress;
-	unsigned int portNum;
 
 	// Menu Code - pretty much self documenting switch statements.
 	int menuselection;
 	while (true)
 	{
-		std::cout   << "Please make a selection:\n"
-		<< "1. Listen\n" << "2. Send File\n" << "3. Exit\n" << "Selection #: ";
+		std::cout   << "\nPlease make a selection:\n"
+		<< "1. Listen for single file\n" << "2. Listen for multiple files (indefinite loop)\n" << "3. Send File\n" << "4. Exit\n" << "Selection #: ";
 		std::cin    >> menuselection;
 
 		std::cin.ignore(); // Getline will read the last line return and not read in any data without an ignore.
 
 		switch (menuselection)
 		{
-			case (1): // Listen for File
+			case (1): // Listen for single file
 			{
-				std::cout   << std::endl << "Listening for file:\n";
+				std::cout   << std::endl << "Please input listening port number, or 0 for default (" << std::dec << LISTENING_PORT << "):\n";
+				std::cin >> _portNum;
+
+				if (_portNum == 0)
+					_portNum = LISTENING_PORT;
+				
+				std::cout   << std::endl << "Listening for single file on port " << std::dec << _portNum << ":\n";
 				
 				std::cout   << std::endl;
 
 				try {
-					listen();
+					listen(false);
 				}
 
 				catch (std::runtime_error e) {
@@ -87,36 +92,67 @@ void WilhelmSCP::menu()
 				break;
 			}
 
-			case (2): // Send file
+		case (2): // Listen for multiple files
+		{
+			std::cout   << std::endl << "Please input listening port number, or 0 for default (" << std::dec << LISTENING_PORT << "):\n";
+			std::cin >> _portNum;
+			
+			if (_portNum == 0)
+				_portNum = LISTENING_PORT;
+			
+			std::cout   << std::endl << "Listening for multiple files on port " << std::dec << _portNum << ":\n";
+
+			std::cout   << std::endl;
+
+			try {
+				listen(true);
+			}
+			
+			catch (std::runtime_error e) {
+				std::cout << "\n\n******\n" << e.what() << "\n******\n\n";
+			}
+
+			catch (std::bad_alloc e) {
+				std::cout << "\n\n******\n" << "Allocation Error - Sufficient memory might not be available.\n" << e.what() << "\n******\n\n";
+			}
+
+			catch (...) {
+				std::cout << "\n\n******\n" << "Unspecified Exception Caught: Restarting Menu" << "\n******\n\n";
+			}
+			break;
+		}
+
+			case (3): // Send file
 			{
 				std::cout   << std::endl << "Please input the path to the file to be sent:\n";
 				std::getline (std::cin, inputfilepath);
 
 				std::cout   << std::endl << "Please input a file name for the destination:\n";
+				_fileName.clear();
 				std::getline (std::cin, _fileName);
 
 				std::cout   << std::endl << "Please input destination address:\n";
 				std::getline (std::cin, destAddress);
 				
-				std::cout   << std::endl << "Please input server port number, or 0 for default:\n";
-				std::cin >> portNum;
+				std::cout   << std::endl << "Please input server port number, or 0 for default (" << std::dec << LISTENING_PORT << "):\n";
+				std::cin >> _portNum;
 
-				if (portNum == 0)
-					portNum = LISTENING_PORT;
+				if (_portNum == 0)
+					_portNum = LISTENING_PORT;
 
 				std::cout   << std::endl;
 
 				try
 				{
-					//double t1 = time_in_seconds();
+					double t1 = time_in_seconds();
 
 					setInput (inputfilepath);
 
-					send(skt_lookup_ip(destAddress.c_str()), portNum);
+					send(skt_lookup_ip(destAddress.c_str()), _portNum);
 
-					//double t2 = time_in_seconds();
+					double t2 = time_in_seconds();
 
-					//timePrint (t1, t2, getSize());
+					timePrint (t1, t2, getSize());
 				}
 
 				catch (std::runtime_error e) {
@@ -133,7 +169,7 @@ void WilhelmSCP::menu()
 				break;
 			}
 
-			case (3):
+			case (4):
 			{
 				exit(0);
 			}
@@ -144,20 +180,23 @@ void WilhelmSCP::menu()
 		}
 	}
 }
-void WilhelmSCP::listen()
+
+// Main server function. Can run either as a single receive or as an indefinite loop (until process is killed).
+void WilhelmSCP::listen(bool loop)
 {
-	unsigned int port = LISTENING_PORT;
-	SERVER_SOCKET srv=skt_server(&port); /* lay claim to that port number */
-	while (true)
-	{
-		_socket = skt_accept(srv,0,0); /* wait until a client connects to our port */
-		exchangeKeyServer();	/* Starts a key exchange when client connects */
-		decrypt();	/* Receives and decrypts incomming data */
-		skt_close(_socket); /* stop talking to that client */
+	SERVER_SOCKET srv=skt_server(&_portNum); /* lay claim to that port number */
+	do {
+		_socket = skt_accept(srv,0,0);	/* wait until a client connects to our port */
+		exchangeKeyServer();			/* Starts a key exchange when client connects */
+		_hmacSuccess = decrypt();		/* Receives and decrypts incomming data */
+		printSuccess();
+		skt_close(_socket);				/* stop talking to that client */
 	}
-	skt_close(srv); /* give up our claim on server port */
+	while (loop);						// Only repeat if client requested it
+	skt_close(srv);						/* give up our claim on server port */
 }
 
+// Main client function. Connects to server and initiates key exchange and data encryption/transfer.
 void WilhelmSCP::send(skt_ip_t ip, unsigned int port)
 {
 	_socket =skt_connect(ip,port,1); /* Connects to server */
@@ -166,6 +205,7 @@ void WilhelmSCP::send(skt_ip_t ip, unsigned int port)
 	skt_close(_socket);
 }
 
+// Opens up input file on client
 void WilhelmSCP::setInput (std::string filename)
 {
 	// Open data file
@@ -180,6 +220,7 @@ void WilhelmSCP::setInput (std::string filename)
     _ifile.seekg(0, std::ios::beg);
 }
 
+// Opens up output file on server
 void WilhelmSCP::setOutput (std::string filename)
 {
 	// Open output file
@@ -189,6 +230,8 @@ void WilhelmSCP::setOutput (std::string filename)
 
 }
 
+// Diffie-Hellman key exchange - server side. Server waits for client to send, then transmits reply.
+	// Known values G & P are part of the protocol and are known to both sides already. Set in header.
 void WilhelmSCP::exchangeKeyServer ()
 {
 	// Shared public values:
@@ -224,17 +267,19 @@ void WilhelmSCP::exchangeKeyServer ()
 	SB.writeBinary (&sharedSecret[0], PRIME_BYTES);
 
 	// Quick and dirty way of getting shared secret down to 256 bits from 2048.
-		// Alternatives: XOR 256-bit chunks together or truncate.
+	// Alternatives: XOR 256-bit chunks together or truncate. I believe this option is better, however.
 	
 	SHA256 hash;
 	hash.add(&sharedSecret[0],BLOCK_BYTES);
 	SHA256::digest d = hash.finish();
 
+	// Assign shared secret to _baseKey
 	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
 	{
 		_baseKey.data[i] = d.data[i];
 	}
 
+	/* For debugging Diffie-Hellman key exchange. It seems to be working.
 		// Print results
 		std::cout<<"Prime p: "<<p.hex()<<"\n";
 		std::cout<<"Base  g: "<<g.hex()<<"\n";
@@ -242,9 +287,11 @@ void WilhelmSCP::exchangeKeyServer ()
 		std::cout<<"Transmitted A: "<<A.hex()<<"\n";
 		std::cout<<"Received B: "<<B.hex()<<"\n";
 		std::cout<<"Shared secret B^a: 0x"<<SB.hex()<<"\n";
+	 */
 }
 
-
+// Diffie-Hellman key exchange - client side. Client transmits data to server, then waits for reply.
+	// Known values G & P are part of the protocol and are known to both sides already. Set in header.
 void WilhelmSCP::exchangeKeyClient ()
 {
 	// Shared public values:
@@ -280,17 +327,19 @@ void WilhelmSCP::exchangeKeyClient ()
 	SA.writeBinary (&sharedSecret[0], PRIME_BYTES);
 
 	// Quick and dirty way of getting shared secret down to 256 bits from 2048.
-	// Alternatives: XOR 256-bit chunks together or truncate.
+	// Alternatives: XOR 256-bit chunks together or truncate. I believe this option is better, however.
 
 	SHA256 hash;
 	hash.add(&sharedSecret[0],BLOCK_BYTES);
 	SHA256::digest d = hash.finish();
 
+	// Assign shared secret to _baseKey for encryption
 	for (unsigned int i = 0; i < BLOCK_BYTES; i++)
 	{
 		_baseKey.data[i] = d.data[i];
 	}
 
+	/* For debugging Diffie-Hellman key exchange. It seems to be working.
 	// Print results
 	std::cout<<"Prime p: "<<p.hex()<<"\n";
 	std::cout<<"Base  g: "<<g.hex()<<"\n";
@@ -298,14 +347,16 @@ void WilhelmSCP::exchangeKeyClient ()
 	std::cout<<"Transmitted B: "<<B.hex()<<"\n";
 	std::cout<<"Received A: "<<A.hex()<<"\n";
 	std::cout<<"Shared secret A^b: 0x"<<SA.hex()<<"\n";
+	*/
 }
 
-
+// Used by non-member timing function
 std::size_t WilhelmSCP::getSize()
 {
 	return _inputSize;
 }
 
+// Encryption Function. Used on client, does all transfer to server other than the key exchange (previously performed).
 void WilhelmSCP::encrypt ()
 {
 	// Temp storage for each clusters individual hashes
@@ -317,7 +368,14 @@ void WilhelmSCP::encrypt ()
         throw std::runtime_error ("NO KEY HAS BEEN SET");
 
 	// Send file size
-	skt_sendN(_socket, (char*)&_inputSize, sizeof(_inputSize));
+	uint64_t roundedUpInputSize; // Need to round up to account for padding that will happen.
+	
+	if (_inputSize%BLOCK_BYTES)
+		roundedUpInputSize = (_inputSize)-(_inputSize%BLOCK_BYTES)+BLOCK_BYTES;
+	else
+		roundedUpInputSize = _inputSize; // No rounding required, already a multiple of BLOCK_SIZE, no padding.
+
+	skt_sendN(_socket, (char*)&roundedUpInputSize, sizeof(roundedUpInputSize));
 
 	// Send file name length followed by file name
 	// THIS IS PROBABLY A BAD WAY TO DO IT, BUT C-STRINGS SUCK NO MATTER WHAT.
@@ -334,8 +392,6 @@ void WilhelmSCP::encrypt ()
 	
 	// Write IV
 	skt_sendN(_socket, (char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
-	std::cout << "\n IV IS: ";
-	printBlock (_lastBlockPrevCluster);
 	
 	while (!_ifile.fail())
 	{
@@ -396,16 +452,10 @@ void WilhelmSCP::encrypt ()
 	skt_sendN(_socket, (char*)&hashesTemp.data[0], BLOCK_BYTES);
 
 	// Cleanup
-	_indexToStream = 0;
-	_currentBlock = NULL;
-	_currentL = NULL;
-	_currentR = NULL;
-	_currentBlockSet.clear();
-	_blockNum = 0;
-	_roundNum = 0;
-	_clusterNum = 0;
+	cleanup();
 }
 
+// Decryption function. Receives all data from client other than performing the key exchange.
 bool WilhelmSCP::decrypt ()
 {
 	// Temp storage for each clusters individual hashes of unencrypted data
@@ -427,7 +477,7 @@ bool WilhelmSCP::decrypt ()
 	skt_recvN(_socket, (char*)&fileNameSize, sizeof(fileNameSize));
 	if (fileNameSize > 4096)
 		fileNameSize = fileNameSize%4096;
-	
+
 	skt_recvN(_socket, (char*)&tempFileName, fileNameSize);
 	for (unsigned int i = 0; i < fileNameSize; i++)
 		_fileName.push_back(tempFileName[i]);
@@ -437,9 +487,6 @@ bool WilhelmSCP::decrypt ()
 	
 	// Read IV
 	skt_recvN (_socket, (char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
-
-	std::cout << "\n IV IS: ";
-	printBlock (_lastBlockPrevCluster);
 	
 	// Runs until we've hit our last block. (_indexToStream+CLUSTER_BYTES < _inputSize) is false on last block, hence 2*CLUSTER_BYTES.
 	bool loop = true;
@@ -455,18 +502,19 @@ bool WilhelmSCP::decrypt ()
 			// Update pos in stream
 			_indexToStream += CLUSTER_BYTES;
 		}
-		// Last cluster, <= CLUSTER_BYTES
+		// Last cluster, <= CLUSTER_BYTES + 2 BLOCK_BYTES
 		else
 		{
-			// Reads in rest of file
-			_currentBlockSet.resize((_inputSize%CLUSTER_BYTES)/BLOCK_BYTES);
-			skt_recvN (_socket, (char*)&_currentBlockSet[0],_inputSize-_indexToStream);
+			// Receives in rest of file
+			_currentBlockSet.resize((_inputSize-_indexToStream)/BLOCK_BYTES);
 			
+			skt_recvN (_socket, (char*)&_currentBlockSet[0],_inputSize-_indexToStream);
+
 			// Update pos in stream.
 			_indexToStream = _inputSize;
 			loop = false;
 		}
-		
+
 		// Original HMAC returned if on final block, default constructed block otherwise.
 		OrigHashChecksum = decCBC();
 
@@ -479,7 +527,8 @@ bool WilhelmSCP::decrypt ()
 		// Write out to file
 		if (_indexToStream < _inputSize)
 			_ofile.write((char*)&_currentBlockSet[0], CLUSTER_BYTES);
-		else 
+		
+		else
 		{
 			// Write out to file remaining data. Padding removed from _inputSize scope in final decCBC
 			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES));
@@ -492,15 +541,7 @@ bool WilhelmSCP::decrypt ()
 	_currentBlockSet = clusterHashes;
 	Block tempVal = Hash_SHA256_Current_Cluster();
 
-	// Cleanup
-	_indexToStream = 0;
-	_currentBlock = NULL;
-	_currentL = NULL;
-	_currentR = NULL;
-	_currentBlockSet.clear();
-	_blockNum = 0;
-	_roundNum = 0;
-	_clusterNum = 0;
+	cleanup();
 
 	return (OrigHashChecksum == tempVal);
 }
@@ -811,6 +852,54 @@ WilhelmSCP::Block WilhelmSCP::Hash_SHA256_Current_Cluster ()
 	return b;
 }
 
+// Function for creating random secrets for the diffie-hellman key exchange
+BigInteger WilhelmSCP::randIntGenerator ()
+{
+
+	std::ifstream random;
+
+	random.open ("/dev/random", std::ios::in | std::ios::binary);
+	WilhelmSCP::Block b;
+	random.read((char*)&b.data[0],BLOCK_BYTES);
+	random.close();
+
+	BigInteger randomBI;
+	randomBI.readBinary((const unsigned char*)&b.data[0], BLOCK_BYTES);
+	return randomBI;
+}
+
+// Cleanup the current state after a session
+void WilhelmSCP::cleanup()
+{
+
+	// Cleanup
+	_ofile.close(); // This is actually really important.
+	_ifile.close(); // This is semi-important
+	_currentBlock = NULL;
+	_currentL = NULL;
+	_currentR = NULL;
+	_currentBlockSet.clear();
+	_baseKey = Block();
+	_lastBlockPrevCluster = Block();
+	_indexToStream = 0;
+	_blockNum = 0;
+	_roundNum = 0;
+	_clusterNum = 0;
+}
+
+// Function for printing success or failure of decryption
+void WilhelmSCP::printSuccess()
+{
+	if (_hmacSuccess == true)
+		std::cout << "\nFile successfully received and saved to \"" << _fileName << "\"\n";
+	else
+		std::cout << "\nFile \"" << _fileName << "\" was not successfully received.\n";
+
+	_fileName.clear(); // Incase of looping multiple file copies, clear file name.
+}
+
+
+
 /**** Overloaded Operators ****/
 
 // Block addition operator
@@ -869,6 +958,8 @@ WilhelmSCP::LRSide WilhelmSCP::LRSide::operator^ (const WilhelmSCP::LRSide & rhs
 }
 
 
+
+
 /****  Debugging ****/
 
 void	WilhelmSCP::printBlock (const WilhelmSCP::Block & b) const
@@ -895,26 +986,9 @@ void WilhelmSCP::publicDebugFunc()
 }
 
 
-BigInteger WilhelmSCP::randIntGenerator ()
-{
-
-	std::ifstream random;
-
-	random.open ("/dev/random", std::ios::in | std::ios::binary);
-	WilhelmSCP::Block b;
-	random.read((char*)&b.data[0],BLOCK_BYTES);
-	random.close();
-
-	BigInteger randomBI;
-	randomBI.readBinary((const unsigned char*)&b.data[0], BLOCK_BYTES);
-	return randomBI;
-}
-
-
-
 // TIMING FUNCTIONS WERE CAUSING LINKING ERRORS - will look into it later.
 // Not specifically this timing function, but the functions in NetRunlib.h
-/*
+
 void timePrint (double time1, double time2, int dataSize)
 {
     
@@ -966,4 +1040,3 @@ void timePrint (double time1, double time2, int dataSize)
     std::cout << "\n Processed at an average rate of: " << bytesPerSecond << " " << byteUnits << std::endl << std::endl;
 
 }
-*/
