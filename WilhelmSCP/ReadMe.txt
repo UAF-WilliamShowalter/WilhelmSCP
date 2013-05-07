@@ -15,14 +15,9 @@ A diffie hellman key exchange is used to have the two parties agree on a symmetr
 
 Currently
 ---------
-Diffie-Hellman Key Exchange is implemented and working.
-Network communication is implemented and there appears to be an issue with decrypting/writing the last cluster. 
-Likely some off by one type error in the padding/hmac handling (which I haven't quite finished, so that makes sense).
-Data not in the last 4096 bytes appears to be transfered without issue.
-
-Known issue where listening service doesn't properly restart after first connection is made. 
-Needs to be adapted to close and clear the old file stream.
-
+All basic functionality is working.
+--Basic authentication still should be implemented.
+--Option for server logging file and not console should also be implemented.
 
 **NOTE**
 I am not a crytologist/cryptanalyst and this software has not been heavily analyzed for security,

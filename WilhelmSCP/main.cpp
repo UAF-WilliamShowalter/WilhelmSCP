@@ -11,12 +11,6 @@
 
 int main(int argc, const char * argv[])
 {
-
-	// insert code here...	
 	WilhelmSCP test;
-
 	test.menu();
-	
-	
 }
-

@@ -44,7 +44,10 @@
 	encrypt() or decrypt() may throw if set functions are not called first.
 */
 
-#include <iostream>		// debugging to console
+#ifndef __WilhelmSCP__WilhelmSCP__
+#define __WilhelmSCP__WilhelmSCP__
+
+#include <iostream>		// Menu & Console Debugging
 
 #include <string>		// std::string
 #include <fstream>		// file IO
@@ -56,9 +59,6 @@
 #include "osl/bigint.h" // OSL BigInt from Lawlor ECC library
 #include "NetRunlib.h"	// Timing Library borrowed from NetRun
 
-#ifndef __WilhelmSCP__WilhelmSCP__
-#define __WilhelmSCP__WilhelmSCP__
-
 // GLOBAL CONST
 
 const unsigned int LISTENING_PORT	= 32121;
@@ -66,7 +66,7 @@ const unsigned int PRIME_BYTES		= 2048/8;
 
 const unsigned int CLUSTER_BYTES	= 4096;
 const unsigned int BLOCK_BYTES		= 32;
-const unsigned int BLOCK_BITS		= 256;
+const unsigned int BLOCK_BITS		= BLOCK_BYTES*8;
 const unsigned int HASHING_REPEATS	= 2;
 const unsigned int ROR_CONSTANT		= 27;
 const unsigned int FEISTEL_ROUNDS	= 16;
@@ -94,15 +94,6 @@ class WilhelmSCP {
 public:
 // Public Methods
 	void menu();
-	void listen(bool loop);
-	void send(skt_ip_t ip, unsigned int port);
-	void setInput (std::string filename);
-	void setOutput (std::string filename);
-	void exchangeKeyServer ();
-	void exchangeKeyClient ();
-	void encrypt ();
-	bool decrypt ();
-
 	std::size_t getSize();
 
 // Debugging
@@ -143,6 +134,16 @@ private:
 private:
 // Private Methods
 	BigInteger randIntGenerator ();
+	
+	void listen(bool loop);
+	void send(skt_ip_t ip, unsigned int port);
+
+	void setInput (std::string filename);
+	void setOutput (std::string filename);
+	void exchangeKeyServer ();
+	void exchangeKeyClient ();
+	void encrypt ();
+	bool decrypt ();
 
 	void  encCBC();
 	Block decCBC();
@@ -157,8 +158,8 @@ private:
 	Block	Padding (Block);
 	void	Hash_SHA256_Block (Block &);
 	Block	Hash_SHA256_Current_Cluster ();
-	void	printSuccess();
 
+	void	printSuccess();
 	void	cleanup();
 
 	LRSide	rorLRSide (const LRSide &, unsigned long);
