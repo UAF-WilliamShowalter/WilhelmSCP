@@ -656,10 +656,8 @@ WilhelmSCP::Block WilhelmSCP::decCBC()
 		_inputSize += paddingBlock->data[temppos];
 		_inputSize -= BLOCK_BYTES + BLOCK_BYTES;
 		if (!(paddingBlock->data[temppos])) // If no padding
-		{std::cout << "FOR THE LOVE OF CHRIST";
-			_inputSize += BLOCK_BYTES;}
-		std::cout << "FORFUCKSSAKE\n" << (unsigned long)tempBlock.data[temppos];
-
+			_inputSize += BLOCK_BYTES;
+	
 		Block hashChecksum = *(++_currentBlock);
 		// Removing hmac before write out to file
 		_currentBlockSet.resize(_currentBlockSet.size()-1);
