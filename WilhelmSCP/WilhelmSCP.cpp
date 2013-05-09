@@ -199,7 +199,7 @@ void WilhelmSCP::listen(bool loop)
 // Main client function. Connects to server and initiates key exchange and data encryption/transfer.
 void WilhelmSCP::send(skt_ip_t ip, unsigned int port)
 {
-	_socket =skt_connect(ip,port,1); /* Connects to server */
+	_socket =skt_connect(ip,port,CLIENT_TIMEOUT); /* Connects to server */
 	exchangeKeyClient ();			/* Starts a key exchange with serveer */
 	encrypt();						/* Sends encrypted data to server */
 	skt_close(_socket);
@@ -408,10 +408,11 @@ void WilhelmSCP::encrypt ()
 		else // Last cluster, <= CLUSTER_BYTES
 		{
 			// Reads in rest of file, tries to read 1 off end, setting the fail bit and prevent loop from continuing
-			std::size_t tempBlockNum = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
+			std::size_t tempBlockNum = (_inputSize-_indexToStream)/BLOCK_BYTES;
 			if (_inputSize%BLOCK_BYTES)	// This is clever trickery to balance out the truncating that happens in the previous command. If not a multiple, then we truncated.
 				tempBlockNum++;
 			_currentBlockSet.resize(tempBlockNum);
+			
 			_ifile.read((char*)&_currentBlockSet[0],_inputSize-_indexToStream+1);
 
 			// Update pos in stream.
@@ -488,12 +489,12 @@ bool WilhelmSCP::decrypt ()
 	// Read IV
 	skt_recvN (_socket, (char*)&_lastBlockPrevCluster.data[0], BLOCK_BYTES);
 	
-	// Runs until we've hit our last block. (_indexToStream+CLUSTER_BYTES < _inputSize) is false on last block, hence 2*CLUSTER_BYTES.
+	// Runs until we've hit our last block. (_indexToStream+CLUSTER_BYTES < _inputSize) is false on last block, hence 2*BLOCK_BYTES
 	bool loop = true;
 	while (loop)
 	{
 		// Read a cluster
-		if (_indexToStream + CLUSTER_BYTES < _inputSize)
+		if (_indexToStream + CLUSTER_BYTES + 2*BLOCK_BYTES < _inputSize)
 		{
 			// Reads in next section
 			_currentBlockSet.resize(CLUSTER_BYTES/BLOCK_BYTES);
@@ -531,7 +532,10 @@ bool WilhelmSCP::decrypt ()
 		else
 		{
 			// Write out to file remaining data. Padding removed from _inputSize scope in final decCBC
-			_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES));
+			if (_inputSize%CLUSTER_BYTES)
+				_ofile.write((char*)&_currentBlockSet[0], (_inputSize%CLUSTER_BYTES));
+			else
+				_ofile.write((char*)&_currentBlockSet[0], (CLUSTER_BYTES));
 		}
 
 		_currentBlockSet.clear();
@@ -557,7 +561,10 @@ void WilhelmSCP::encCBC()
 	if (_indexToStream >= _inputSize)
 	{
 		relativeBlockCount = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
-		if (!(_inputSize%BLOCK_BYTES))
+		
+		if (!(_inputSize%CLUSTER_BYTES))
+			relativeBlockCount = CLUSTER_BYTES/BLOCK_BYTES;
+		if (!(_inputSize%BLOCK_BYTES)) // If not truncated subtract 1.
 			relativeBlockCount--;
 	}
 	else 
@@ -609,8 +616,10 @@ WilhelmSCP::Block WilhelmSCP::decCBC()
 
 	if (_indexToStream >= _inputSize)
 	{
+		unsigned long lastClusterSize = _currentBlockSet.size()*BLOCK_BYTES;
+		
 		_inputSize -= BLOCK_BYTES; // Discount the HMAC block - do not process.
-		relativeBlockCount = (_inputSize%CLUSTER_BYTES)/BLOCK_BYTES;
+		relativeBlockCount = (lastClusterSize -= BLOCK_BYTES)/BLOCK_BYTES;
 	}
 	else 
 		relativeBlockCount = CLUSTER_BYTES/BLOCK_BYTES-1;
@@ -646,11 +655,15 @@ WilhelmSCP::Block WilhelmSCP::decCBC()
 
 		_inputSize += paddingBlock->data[temppos];
 		_inputSize -= BLOCK_BYTES + BLOCK_BYTES;
+		if (!(paddingBlock->data[temppos])) // If no padding
+		{std::cout << "FOR THE LOVE OF CHRIST";
+			_inputSize += BLOCK_BYTES;}
+		std::cout << "FORFUCKSSAKE\n" << (unsigned long)tempBlock.data[temppos];
 
 		Block hashChecksum = *(++_currentBlock);
 		// Removing hmac before write out to file
 		_currentBlockSet.resize(_currentBlockSet.size()-1);
-		
+
 		// Return hash checksum for comaprison
 		return hashChecksum;
 	}

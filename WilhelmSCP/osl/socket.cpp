@@ -404,7 +404,7 @@ int skt_recvN(SOCKET hSocket,void *buff,int nBytes)
   nLeft = nBytes;
   while (0 < nLeft)
   {
-    if (0==skt_select1(hSocket,60*1000))
+    if (0==skt_select1(hSocket,1000*1000))
 	return skt_abort(93610,"Timeout on socket recv!");
     skt_ignore_SIGPIPE=1;
     nRead = recv(hSocket,pBuff,nLeft,0);
